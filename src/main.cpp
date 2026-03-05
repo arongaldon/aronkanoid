@@ -26,6 +26,7 @@ struct Brick {
   Vector2 size;
   bool active;
   bool falling;
+  bool isTrap;
   Vector2 speed;
   Color color;
 };
@@ -40,6 +41,9 @@ GameScreen currentScreen = MENU;
 int score = 0;
 bool victory = false;
 float speedMultiplier = 1.0f;
+int explosionTimer = 0;
+Vector2 explosionPos = {0, 0};
+float explosionRadius = 0;
 
 // Functions
 void InitGame();
@@ -89,6 +93,7 @@ void InitGame() {
           (Vector2){brickWidth - 2, brickHeight - 2}; // slight padding
       bricks[i][j].active = true;
       bricks[i][j].falling = false;
+      bricks[i][j].isTrap = false;
       bricks[i][j].speed = (Vector2){0, 0};
 
       // Alternate colors
@@ -105,9 +110,16 @@ void InitGame() {
       }
     }
   }
+
+  // Set one random block as the trap. No need to seed, Raylib pre-seeds random.
+  int trapR = GetRandomValue(0, B_ROWS - 1);
+  int trapC = GetRandomValue(0, B_COLUMNS - 1);
+  bricks[trapR][trapC].isTrap = true;
+
   score = 0;
   victory = false;
   speedMultiplier = 1.0f;
+  explosionTimer = 0;
   currentScreen = MENU;
 }
 
@@ -118,6 +130,9 @@ void UpdateGame() {
       HideCursor();
     }
   } else if (currentScreen == GAMEPLAY) {
+    if (explosionTimer > 0)
+      explosionTimer--;
+
     // Player movement
     Vector2 mouseDelta = GetMouseDelta();
     if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
@@ -202,8 +217,35 @@ void UpdateGame() {
           Rectangle pRec = {player.position.x, player.position.y, player.size.x,
                             player.size.y};
 
+          // Trap Explosion logic
+          if (bricks[i][j].isTrap &&
+              bricks[i][j].position.y + bricks[i][j].size.y >=
+                  player.position.y) {
+            bricks[i][j].falling = false;
+
+            explosionPos =
+                (Vector2){bricks[i][j].position.x + bricks[i][j].size.x / 2.0f,
+                          player.position.y};
+            explosionRadius = screenWidth / 4.0f; // half screen total area
+            explosionTimer = 30;                  // 0.5 seconds at 60 FPS
+
+            float playerCenterX = player.position.x + player.size.x / 2.0f;
+            if (std::abs(playerCenterX - explosionPos.x) <=
+                explosionRadius + player.size.x / 2.0f) {
+              player.life--;
+              ball.active = false;
+              if (player.life <= 0) {
+                currentScreen = ENDING;
+                victory = false;
+                ShowCursor();
+              }
+            }
+            continue;
+          }
+
           // Player paddle collision
-          if (bricks[i][j].speed.y > 0 && CheckCollisionRecs(bRec, pRec)) {
+          if (!bricks[i][j].isTrap && bricks[i][j].speed.y > 0 &&
+              CheckCollisionRecs(bRec, pRec)) {
             bricks[i][j].speed.y = -6.0f; // Bounce up
 
             // Horizontal bounce based on paddle hit location
@@ -451,6 +493,15 @@ void DrawGame() {
     // Draw Ball
     DrawCircleV(ball.position, ball.radius, WHITE);
 
+    // Draw Explosion
+    if (explosionTimer > 0) {
+      float alpha = (float)explosionTimer / 30.0f;
+      DrawCircleV(explosionPos, explosionRadius, Fade(ORANGE, alpha * 0.5f));
+      DrawCircleV(explosionPos, explosionRadius * 0.75f,
+                  Fade(RED, alpha * 0.8f));
+      DrawCircleV(explosionPos, explosionRadius * 0.4f, Fade(YELLOW, alpha));
+    }
+
     // Draw Bricks
     for (int i = 0; i < B_ROWS; i++) {
       for (int j = 0; j < B_COLUMNS; j++) {
@@ -462,14 +513,29 @@ void DrawGame() {
                         Fade(BLACK, 0.4f));
           Color baseColor = bricks[i][j].color;
           if (bricks[i][j].falling) {
-            // Darken color to look "turned off"
-            baseColor.r = (unsigned char)(baseColor.r * 0.4f);
-            baseColor.g = (unsigned char)(baseColor.g * 0.4f);
-            baseColor.b = (unsigned char)(baseColor.b * 0.4f);
+            if (bricks[i][j].isTrap) {
+              baseColor = BLACK;
+            } else {
+              // Darken color to look "turned off"
+              baseColor.r = (unsigned char)(baseColor.r * 0.4f);
+              baseColor.g = (unsigned char)(baseColor.g * 0.4f);
+              baseColor.b = (unsigned char)(baseColor.b * 0.4f);
+            }
           }
 
           // Body
           DrawRectangleRec(bRec, baseColor);
+
+          // Render Skull if it's the trap
+          if (bricks[i][j].falling && bricks[i][j].isTrap) {
+            float cx = bRec.x + bRec.width / 2.0f;
+            float cy = bRec.y + bRec.height / 2.0f;
+            DrawCircle(cx, cy - 2, 6, WHITE);           // top head
+            DrawRectangle(cx - 4, cy + 1, 8, 4, WHITE); // jaw
+            DrawCircle(cx - 2, cy - 1, 1.5f, BLACK);    // left eye
+            DrawCircle(cx + 2, cy - 1, 1.5f, BLACK);    // right eye
+            DrawRectangle(cx - 1, cy + 3, 2, 2, BLACK); // nose
+          }
 
           // 3D Bevel Effects
           if (bricks[i][j].active) {

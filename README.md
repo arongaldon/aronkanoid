@@ -35,6 +35,7 @@ If you are on Linux, you will need some development libraries installed first. A
 
 * **Advanced Physics:** When bricks are destroyed, they lose power (dimmening in color) and physically fall down the screen.
 * **Interactive Debris:** Falling bricks can bounce off your paddle (gaining horizontal spin based on where they hit) and even collide and bounce elastically against other falling bricks. They also pile up on top of unbroken active bricks!
+* **Deadly Traps:** A randomly chosen brick acts as a trap. When broken, it turns black, reveals a skull, and if it falls onto your paddle, it explodes and costs you a life!
 * **Dynamic Speed:** Every time a brick is broken, your score goes up (10 points each) and the ball's overall speed increases dynamically.
 * **3D Visuals:** The blocks and the player paddle feature a dynamic 3D beveled shading effect with drop-shadows.
 
