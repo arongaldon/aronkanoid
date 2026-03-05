@@ -142,12 +142,17 @@ void UpdateGame() {
       ball.position.y += ball.speed.y;
 
       // Wall collision
-      if (ball.position.x + ball.radius >= screenWidth ||
-          ball.position.x - ball.radius <= 0) {
-        ball.speed.x *= -1;
+      if (ball.position.x + ball.radius >= screenWidth) {
+        ball.position.x = screenWidth - ball.radius;
+        ball.speed.x = -std::abs(ball.speed.x);
+      } else if (ball.position.x - ball.radius <= 0) {
+        ball.position.x = ball.radius;
+        ball.speed.x = std::abs(ball.speed.x);
       }
+
       if (ball.position.y - ball.radius <= 0) {
-        ball.speed.y *= -1;
+        ball.position.y = ball.radius;
+        ball.speed.y = std::abs(ball.speed.y);
       }
 
       // Floor collision (Death)
@@ -356,16 +361,24 @@ void UpdateGame() {
 
               if (minDist == dTop) {
                 ball.speed.y = -std::abs(ball.speed.y);
-                ball.position.y = brickRec.y - ball.radius;
+                ball.position.y = brickRec.y - ball.radius - 0.1f;
               } else if (minDist == dBot) {
                 ball.speed.y = std::abs(ball.speed.y);
-                ball.position.y = brickRec.y + brickRec.height + ball.radius;
+                ball.position.y =
+                    brickRec.y + brickRec.height + ball.radius + 0.1f;
               } else if (minDist == dLeft) {
                 ball.speed.x = -std::abs(ball.speed.x);
-                ball.position.x = brickRec.x - ball.radius;
+                ball.position.x = brickRec.x - ball.radius - 0.1f;
               } else {
                 ball.speed.x = std::abs(ball.speed.x);
-                ball.position.x = brickRec.x + brickRec.width + ball.radius;
+                ball.position.x =
+                    brickRec.x + brickRec.width + ball.radius + 0.1f;
+              }
+
+              // Anti-stuck: If perfectly horizontal bounce and trapped near
+              // top, add slight vertical
+              if (std::abs(ball.speed.y) < 0.5f) {
+                ball.speed.y = (ball.speed.y >= 0 ? 1.0f : -1.0f);
               }
 
               // Let's break to only handle one collision per frame effectively
