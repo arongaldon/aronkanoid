@@ -1,0 +1,283 @@
+#include "raylib.h"
+#include <cmath>
+
+// Settings
+const int screenWidth = 800;
+const int screenHeight = 600;
+
+const int B_COLUMNS = 10;
+const int B_ROWS = 5;
+
+struct Player {
+  Vector2 position;
+  Vector2 size;
+  int life;
+};
+
+struct Ball {
+  Vector2 position;
+  Vector2 speed;
+  int radius;
+  bool active;
+};
+
+struct Brick {
+  Vector2 position;
+  Vector2 size;
+  bool active;
+  Color color;
+};
+
+enum GameScreen { MENU, GAMEPLAY, ENDING };
+
+// Global variables
+Player player = {0};
+Ball ball = {0};
+Brick bricks[B_ROWS][B_COLUMNS] = {0};
+GameScreen currentScreen = MENU;
+int score = 0;
+bool victory = false;
+
+// Functions
+void InitGame();
+void UpdateGame();
+void DrawGame();
+void UpdateDrawFrame();
+
+int main() {
+  InitWindow(screenWidth, screenHeight, "Aronkanoid - C++ / Raylib");
+  SetTargetFPS(60);
+
+  InitGame();
+
+  while (!WindowShouldClose()) {
+    UpdateDrawFrame();
+  }
+
+  CloseWindow();
+  return 0;
+}
+
+void InitGame() {
+  // Init Player
+  player.size = (Vector2){100, 20};
+  player.position = (Vector2){screenWidth / 2 - player.size.x / 2,
+                              screenHeight - player.size.y * 2};
+  player.life = 3;
+
+  // Init Ball
+  ball.radius = 10;
+  ball.position = (Vector2){player.position.x + player.size.x / 2,
+                            player.position.y - ball.radius * 2};
+  ball.speed = (Vector2){0, 0};
+  ball.active = false;
+
+  // Init Bricks
+  int initialDownPosition = 50;
+  int initialLeftPosition = 40;
+  float brickWidth = (screenWidth - initialLeftPosition * 2.0f) / B_COLUMNS;
+  float brickHeight = 30;
+
+  for (int i = 0; i < B_ROWS; i++) {
+    for (int j = 0; j < B_COLUMNS; j++) {
+      bricks[i][j].position = (Vector2){initialLeftPosition + j * brickWidth,
+                                        initialDownPosition + i * brickHeight};
+      bricks[i][j].size =
+          (Vector2){brickWidth - 2, brickHeight - 2}; // slight padding
+      bricks[i][j].active = true;
+
+      // Alternate colors
+      switch (i % 3) {
+      case 0:
+        bricks[i][j].color = RED;
+        break;
+      case 1:
+        bricks[i][j].color = ORANGE;
+        break;
+      case 2:
+        bricks[i][j].color = YELLOW;
+        break;
+      }
+    }
+  }
+  score = 0;
+  victory = false;
+  currentScreen = MENU;
+}
+
+void UpdateGame() {
+  if (currentScreen == MENU) {
+    if (IsKeyPressed(KEY_ENTER))
+      currentScreen = GAMEPLAY;
+  } else if (currentScreen == GAMEPLAY) {
+    // Player movement
+    if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))
+      player.position.x -= 12.0f;
+    if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))
+      player.position.x += 12.0f;
+
+    if (player.position.x <= 0)
+      player.position.x = 0;
+    if (player.position.x + player.size.x >= screenWidth)
+      player.position.x = screenWidth - player.size.x;
+
+    // Ball launch
+    if (!ball.active) {
+      ball.position = (Vector2){player.position.x + player.size.x / 2,
+                                player.position.y - ball.radius * 2};
+      if (IsKeyPressed(KEY_SPACE)) {
+        ball.active = true;
+        ball.speed = (Vector2){4.0f, -5.0f}; // Initial velocity
+      }
+    } else {
+      // Ball movement
+      ball.position.x += ball.speed.x;
+      ball.position.y += ball.speed.y;
+
+      // Wall collision
+      if (ball.position.x + ball.radius >= screenWidth ||
+          ball.position.x - ball.radius <= 0) {
+        ball.speed.x *= -1;
+      }
+      if (ball.position.y - ball.radius <= 0) {
+        ball.speed.y *= -1;
+      }
+
+      // Floor collision (Death)
+      if (ball.position.y + ball.radius >= screenHeight) {
+        ball.active = false;
+        player.life--;
+        if (player.life <= 0) {
+          currentScreen = ENDING;
+          victory = false;
+        }
+      }
+
+      // Player collision
+      if (CheckCollisionCircleRec(ball.position, ball.radius,
+                                  (Rectangle){player.position.x,
+                                              player.position.y, player.size.x,
+                                              player.size.y})) {
+        if (ball.speed.y > 0) {
+          ball.speed.y *= -1;
+          // Add some spin/english based on where it hit the paddle
+          float hitFactor =
+              (ball.position.x - (player.position.x + player.size.x / 2)) /
+              (player.size.x / 2);
+          ball.speed.x = hitFactor * 6.0f;
+        }
+      }
+
+      // Bricks collision
+      bool winCheck = true;
+      for (int i = 0; i < B_ROWS; i++) {
+        for (int j = 0; j < B_COLUMNS; j++) {
+          if (bricks[i][j].active) {
+            winCheck = false; // Still bricks left
+            Rectangle brickRec = {bricks[i][j].position.x,
+                                  bricks[i][j].position.y, bricks[i][j].size.x,
+                                  bricks[i][j].size.y};
+
+            if (CheckCollisionCircleRec(ball.position, ball.radius, brickRec)) {
+              bricks[i][j].active = false;
+              score += 10;
+
+              // Basic reflection logic -> very simplistic
+              float dTop = std::abs(brickRec.y - ball.position.y);
+              float dBot =
+                  std::abs((brickRec.y + brickRec.height) - ball.position.y);
+              float dLeft = std::abs(brickRec.x - ball.position.x);
+              float dRight =
+                  std::abs((brickRec.x + brickRec.width) - ball.position.x);
+
+              float minDist =
+                  std::fmin(std::fmin(dTop, dBot), std::fmin(dLeft, dRight));
+
+              if (minDist == dTop || minDist == dBot) {
+                ball.speed.y *= -1;
+              } else {
+                ball.speed.x *= -1;
+              }
+
+              // Let's break to only handle one collision per frame effectively
+              goto CollisionHandled;
+            }
+          }
+        }
+      }
+    CollisionHandled:
+
+      if (winCheck) {
+        currentScreen = ENDING;
+        victory = true;
+      }
+    }
+  } else if (currentScreen == ENDING) {
+    if (IsKeyPressed(KEY_ENTER)) {
+      InitGame();
+    }
+  }
+}
+
+void DrawGame() {
+  BeginDrawing();
+  ClearBackground(BLACK);
+
+  if (currentScreen == MENU) {
+    DrawText("ARONKANOID", screenWidth / 2 - MeasureText("ARONKANOID", 40) / 2,
+             screenHeight / 2 - 40, 40, BLACK);
+    DrawText("PRESS ENTER to START",
+             screenWidth / 2 - MeasureText("PRESS ENTER to START", 20) / 2,
+             screenHeight / 2 + 20, 20, DARKGRAY);
+  } else if (currentScreen == GAMEPLAY) {
+    // Draw Player
+    DrawRectangleV(player.position, player.size, WHITE);
+
+    // Draw Ball
+    DrawCircleV(ball.position, ball.radius, WHITE);
+
+    // Draw Bricks
+    for (int i = 0; i < B_ROWS; i++) {
+      for (int j = 0; j < B_COLUMNS; j++) {
+        if (bricks[i][j].active) {
+          DrawRectangleV(bricks[i][j].position, bricks[i][j].size,
+                         bricks[i][j].color);
+        }
+      }
+    }
+
+    // UI
+    DrawText(TextFormat("SCORE: %04i", score), 20, 10, 20, BLACK);
+    DrawText(TextFormat("LIVES: %i", player.life), screenWidth - 100, 10, 20,
+             BLACK);
+
+    if (!ball.active) {
+      DrawText("PRESS SPACE to LAUNCH",
+               screenWidth / 2 - MeasureText("PRESS SPACE to LAUNCH", 20) / 2,
+               screenHeight / 2, 20, DARKGRAY);
+    }
+
+  } else if (currentScreen == ENDING) {
+    if (victory) {
+      DrawText("YOU WIN!", screenWidth / 2 - MeasureText("YOU WIN!", 40) / 2,
+               screenHeight / 2 - 40, 40, GREEN);
+    } else {
+      DrawText("GAME OVER", screenWidth / 2 - MeasureText("GAME OVER", 40) / 2,
+               screenHeight / 2 - 40, 40, RED);
+    }
+    DrawText(TextFormat("FINAL SCORE: %i", score),
+             screenWidth / 2 -
+                 MeasureText(TextFormat("FINAL SCORE: %i", score), 20) / 2,
+             screenHeight / 2 + 10, 20, BLACK);
+    DrawText("PRESS ENTER to RESTART",
+             screenWidth / 2 - MeasureText("PRESS ENTER to RESTART", 20) / 2,
+             screenHeight / 2 + 40, 20, DARKGRAY);
+  }
+
+  EndDrawing();
+}
+
+void UpdateDrawFrame() {
+  UpdateGame();
+  DrawGame();
+}
