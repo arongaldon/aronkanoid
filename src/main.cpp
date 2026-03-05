@@ -37,6 +37,7 @@ Brick bricks[B_ROWS][B_COLUMNS] = {0};
 GameScreen currentScreen = MENU;
 int score = 0;
 bool victory = false;
+float speedMultiplier = 1.0f;
 
 // Functions
 void InitGame();
@@ -102,6 +103,7 @@ void InitGame() {
   }
   score = 0;
   victory = false;
+  speedMultiplier = 1.0f;
   currentScreen = MENU;
 }
 
@@ -127,7 +129,8 @@ void UpdateGame() {
                                 player.position.y - ball.radius * 2};
       if (IsKeyPressed(KEY_SPACE)) {
         ball.active = true;
-        ball.speed = (Vector2){4.0f, -5.0f}; // Initial velocity
+        ball.speed = (Vector2){4.0f * speedMultiplier,
+                               -5.0f * speedMultiplier}; // Initial velocity
       }
     } else {
       // Ball movement
@@ -164,7 +167,7 @@ void UpdateGame() {
           float hitFactor =
               (ball.position.x - (player.position.x + player.size.x / 2)) /
               (player.size.x / 2);
-          ball.speed.x = hitFactor * 6.0f;
+          ball.speed.x = hitFactor * 6.0f * speedMultiplier;
         }
       }
 
@@ -181,6 +184,9 @@ void UpdateGame() {
             if (CheckCollisionCircleRec(ball.position, ball.radius, brickRec)) {
               bricks[i][j].active = false;
               score += 10;
+              speedMultiplier *= 1.02f;
+              ball.speed.x *= 1.02f;
+              ball.speed.y *= 1.02f;
 
               // Basic reflection logic -> very simplistic
               float dTop = std::abs(brickRec.y - ball.position.y);
@@ -247,7 +253,7 @@ void DrawGame() {
     }
 
     // UI
-    DrawText(TextFormat("SCORE: %04i", score), 20, 10, 20, BLACK);
+    DrawText(TextFormat("SCORE: %04i", score), 20, 10, 20, WHITE);
     DrawText(TextFormat("LIVES: %i", player.life), screenWidth - 100, 10, 20,
              BLACK);
 
