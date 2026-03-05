@@ -25,6 +25,7 @@ struct Brick {
   Vector2 position;
   Vector2 size;
   bool active;
+  bool falling;
   Color color;
 };
 
@@ -86,6 +87,7 @@ void InitGame() {
       bricks[i][j].size =
           (Vector2){brickWidth - 2, brickHeight - 2}; // slight padding
       bricks[i][j].active = true;
+      bricks[i][j].falling = false;
 
       // Alternate colors
       switch (i % 3) {
@@ -172,21 +174,30 @@ void UpdateGame() {
       }
 
       // Bricks collision
-      bool winCheck = true;
       for (int i = 0; i < B_ROWS; i++) {
         for (int j = 0; j < B_COLUMNS; j++) {
-          if (bricks[i][j].active) {
-            winCheck = false; // Still bricks left
+          if (bricks[i][j].active || bricks[i][j].falling) {
+
+            if (bricks[i][j].falling) {
+              bricks[i][j].position.y += 2.0f; // falling slowly
+              if (bricks[i][j].position.y > screenHeight + 50) {
+                bricks[i][j].falling = false;
+              }
+            }
+
             Rectangle brickRec = {bricks[i][j].position.x,
                                   bricks[i][j].position.y, bricks[i][j].size.x,
                                   bricks[i][j].size.y};
 
             if (CheckCollisionCircleRec(ball.position, ball.radius, brickRec)) {
-              bricks[i][j].active = false;
-              score += 10;
-              speedMultiplier *= 1.02f;
-              ball.speed.x *= 1.02f;
-              ball.speed.y *= 1.02f;
+              if (bricks[i][j].active) {
+                bricks[i][j].active = false;
+                bricks[i][j].falling = true;
+                score += 10;
+                speedMultiplier *= 1.02f;
+                ball.speed.x *= 1.02f;
+                ball.speed.y *= 1.02f;
+              }
 
               // Basic reflection logic -> very simplistic
               float dTop = std::abs(brickRec.y - ball.position.y);
@@ -199,10 +210,18 @@ void UpdateGame() {
               float minDist =
                   std::fmin(std::fmin(dTop, dBot), std::fmin(dLeft, dRight));
 
-              if (minDist == dTop || minDist == dBot) {
-                ball.speed.y *= -1;
+              if (minDist == dTop) {
+                ball.speed.y = -std::abs(ball.speed.y);
+                ball.position.y = brickRec.y - ball.radius;
+              } else if (minDist == dBot) {
+                ball.speed.y = std::abs(ball.speed.y);
+                ball.position.y = brickRec.y + brickRec.height + ball.radius;
+              } else if (minDist == dLeft) {
+                ball.speed.x = -std::abs(ball.speed.x);
+                ball.position.x = brickRec.x - ball.radius;
               } else {
-                ball.speed.x *= -1;
+                ball.speed.x = std::abs(ball.speed.x);
+                ball.position.x = brickRec.x + brickRec.width + ball.radius;
               }
 
               // Let's break to only handle one collision per frame effectively
@@ -212,6 +231,18 @@ void UpdateGame() {
         }
       }
     CollisionHandled:
+
+      bool winCheck = true;
+      for (int i = 0; i < B_ROWS; i++) {
+        for (int j = 0; j < B_COLUMNS; j++) {
+          if (bricks[i][j].active) {
+            winCheck = false;
+            break;
+          }
+        }
+        if (!winCheck)
+          break;
+      }
 
       if (winCheck) {
         currentScreen = ENDING;
@@ -236,8 +267,20 @@ void DrawGame() {
              screenWidth / 2 - MeasureText("PRESS ENTER to START", 20) / 2,
              screenHeight / 2 + 20, 20, DARKGRAY);
   } else if (currentScreen == GAMEPLAY) {
-    // Draw Player
-    DrawRectangleV(player.position, player.size, WHITE);
+    // Drop shadow
+    DrawRectangle(player.position.x + 4, player.position.y + 4, player.size.x,
+                  player.size.y, Fade(BLACK, 0.4f));
+    // Main body
+    DrawRectangleV(player.position, player.size, LIGHTGRAY);
+    // 3D Bevels
+    DrawRectangle(player.position.x, player.position.y, player.size.x, 4,
+                  WHITE); // Top edge
+    DrawRectangle(player.position.x, player.position.y, 4, player.size.y,
+                  WHITE); // Left edge
+    DrawRectangle(player.position.x, player.position.y + player.size.y - 4,
+                  player.size.x, 4, GRAY); // Bottom edge
+    DrawRectangle(player.position.x + player.size.x - 4, player.position.y, 4,
+                  player.size.y, GRAY); // Right edge
 
     // Draw Ball
     DrawCircleV(ball.position, ball.radius, WHITE);
@@ -245,9 +288,23 @@ void DrawGame() {
     // Draw Bricks
     for (int i = 0; i < B_ROWS; i++) {
       for (int j = 0; j < B_COLUMNS; j++) {
-        if (bricks[i][j].active) {
-          DrawRectangleV(bricks[i][j].position, bricks[i][j].size,
-                         bricks[i][j].color);
+        if (bricks[i][j].active || bricks[i][j].falling) {
+          Rectangle bRec = {bricks[i][j].position.x, bricks[i][j].position.y,
+                            bricks[i][j].size.x, bricks[i][j].size.y};
+          // Drop shadow
+          DrawRectangle(bRec.x + 3, bRec.y + 3, bRec.width, bRec.height,
+                        Fade(BLACK, 0.4f));
+          // Body
+          DrawRectangleRec(bRec, bricks[i][j].color);
+          // 3D Bevel Effects
+          DrawRectangle(bRec.x, bRec.y, bRec.width, 3,
+                        Fade(WHITE, 0.6f)); // Top
+          DrawRectangle(bRec.x, bRec.y, 3, bRec.height,
+                        Fade(WHITE, 0.6f)); // Left
+          DrawRectangle(bRec.x, bRec.y + bRec.height - 3, bRec.width, 3,
+                        Fade(BLACK, 0.4f)); // Bottom
+          DrawRectangle(bRec.x + bRec.width - 3, bRec.y, 3, bRec.height,
+                        Fade(BLACK, 0.4f)); // Right
         }
       }
     }
