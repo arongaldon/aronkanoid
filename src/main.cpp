@@ -113,10 +113,17 @@ void InitGame() {
 
 void UpdateGame() {
   if (currentScreen == MENU) {
-    if (IsKeyPressed(KEY_ENTER))
+    if (IsKeyPressed(KEY_ENTER)) {
       currentScreen = GAMEPLAY;
+      HideCursor();
+    }
   } else if (currentScreen == GAMEPLAY) {
     // Player movement
+    Vector2 mouseDelta = GetMouseDelta();
+    if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
+      player.position.x = GetMouseX() - player.size.x / 2.0f;
+    }
+
     if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))
       player.position.x -= 12.0f;
     if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))
@@ -131,7 +138,7 @@ void UpdateGame() {
     if (!ball.active) {
       ball.position = (Vector2){player.position.x + player.size.x / 2,
                                 player.position.y - ball.radius * 2};
-      if (IsKeyPressed(KEY_SPACE)) {
+      if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         ball.active = true;
         ball.speed = (Vector2){4.0f * speedMultiplier,
                                -5.0f * speedMultiplier}; // Initial velocity
@@ -162,6 +169,7 @@ void UpdateGame() {
         if (player.life <= 0) {
           currentScreen = ENDING;
           victory = false;
+          ShowCursor();
         }
       }
 
@@ -405,6 +413,7 @@ void UpdateGame() {
     if (winCheck) {
       currentScreen = ENDING;
       victory = true;
+      ShowCursor();
     }
   } else if (currentScreen == ENDING) {
     if (IsKeyPressed(KEY_ENTER)) {

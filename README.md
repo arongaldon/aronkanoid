@@ -26,17 +26,18 @@ If you are on Linux, you will need some development libraries installed first. A
 
 ## Controls
 
-* **Move Left:** `Left Arrow` or `A`
-* **Move Right:** `Right Arrow` or `D`
-* **Launch Ball:** `Spacebar`
+* **Move Paddle:** `Left/Right Arrows`, `A / D` keys, or simply move your **Mouse**.
+* **Launch Ball:** `Spacebar` or **Left Mouse Click**.
 
-## Gameplay
+*(Note: During gameplay, the mouse cursor is automatically hidden for a better experience).*
 
-* Destroy all the bricks to win.
-* You start with 3 lives.
-* If the ball falls below the paddle, you lose a life.
-* The final score is based on the number of bricks broken (10 points each).
+## Gameplay Features
+
+* **Advanced Physics:** When bricks are destroyed, they lose power (dimmening in color) and physically fall down the screen.
+* **Interactive Debris:** Falling bricks can bounce off your paddle (gaining horizontal spin based on where they hit) and even collide and bounce elastically against other falling bricks. They also pile up on top of unbroken active bricks!
+* **Dynamic Speed:** Every time a brick is broken, your score goes up (10 points each) and the ball's overall speed increases dynamically.
+* **3D Visuals:** The blocks and the player paddle feature a dynamic 3D beveled shading effect with drop-shadows.
 
 ## Customization
 
-You can tweak game settings (like ball speed, paddle speed, layout, colors) in `src/main.cpp`.
+You can tweak game settings (like ball speed, paddle speed, layout, colors, and gravity) in `src/main.cpp`.
