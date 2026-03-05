@@ -26,6 +26,7 @@ struct Brick {
   Vector2 size;
   bool active;
   bool falling;
+  Vector2 speed;
   Color color;
 };
 
@@ -88,6 +89,7 @@ void InitGame() {
           (Vector2){brickWidth - 2, brickHeight - 2}; // slight padding
       bricks[i][j].active = true;
       bricks[i][j].falling = false;
+      bricks[i][j].speed = (Vector2){0, 0};
 
       // Alternate colors
       switch (i % 3) {
@@ -172,19 +174,160 @@ void UpdateGame() {
           ball.speed.x = hitFactor * 6.0f * speedMultiplier;
         }
       }
+    }
 
-      // Bricks collision
+    // Falling Bricks Update
+    for (int i = 0; i < B_ROWS; i++) {
+      for (int j = 0; j < B_COLUMNS; j++) {
+        if (bricks[i][j].falling) {
+          bricks[i][j].position.x += bricks[i][j].speed.x;
+          bricks[i][j].position.y += bricks[i][j].speed.y;
+          bricks[i][j].speed.y += 0.15f; // Gravity
+
+          Rectangle bRec = {bricks[i][j].position.x, bricks[i][j].position.y,
+                            bricks[i][j].size.x, bricks[i][j].size.y};
+          Rectangle pRec = {player.position.x, player.position.y, player.size.x,
+                            player.size.y};
+
+          // Player paddle collision
+          if (bricks[i][j].speed.y > 0 && CheckCollisionRecs(bRec, pRec)) {
+            bricks[i][j].speed.y = -6.0f; // Bounce up
+
+            // Horizontal bounce based on paddle hit location
+            float hitFactor =
+                ((bricks[i][j].position.x + bricks[i][j].size.x / 2.0f) -
+                 (player.position.x + player.size.x / 2.0f)) /
+                (player.size.x / 2.0f);
+            bricks[i][j].speed.x = hitFactor * 5.0f;
+
+            bricks[i][j].position.y = player.position.y - bricks[i][j].size.y;
+            bRec.y = bricks[i][j].position.y;
+            bRec.x = bricks[i][j].position.x;
+          }
+
+          // Active bricks collision
+          for (int m = 0; m < B_ROWS; m++) {
+            for (int n = 0; n < B_COLUMNS; n++) {
+              if (bricks[m][n].active) {
+                Rectangle aRec = {bricks[m][n].position.x,
+                                  bricks[m][n].position.y, bricks[m][n].size.x,
+                                  bricks[m][n].size.y};
+                if (CheckCollisionRecs(bRec, aRec)) {
+                  // Resolve collision
+                  float intersectY = std::fmin(
+                      bricks[i][j].position.y + bricks[i][j].size.y - aRec.y,
+                      aRec.y + aRec.height - bricks[i][j].position.y);
+                  float intersectX = std::fmin(
+                      bricks[i][j].position.x + bricks[i][j].size.x - aRec.x,
+                      aRec.x + aRec.width - bricks[i][j].position.x);
+
+                  if (intersectY < intersectX) {
+                    if (bricks[i][j].speed.y > 0 &&
+                        bricks[i][j].position.y < aRec.y) {
+                      bricks[i][j].position.y = aRec.y - bricks[i][j].size.y;
+                      bricks[i][j].speed.y = 0;
+                      // Decelerate horizontal movement when resting
+                      bricks[i][j].speed.x *= 0.5f;
+                    } else if (bricks[i][j].speed.y < 0 &&
+                               bricks[i][j].position.y > aRec.y) {
+                      bricks[i][j].position.y = aRec.y + aRec.height;
+                      bricks[i][j].speed.y *= -0.5f; // bounce off the bottom
+                    }
+                  } else {
+                    if (bricks[i][j].position.x < aRec.x) {
+                      bricks[i][j].position.x = aRec.x - bricks[i][j].size.x;
+                      bricks[i][j].speed.x *= -0.5f;
+                    } else {
+                      bricks[i][j].position.x = aRec.x + aRec.width;
+                      bricks[i][j].speed.x *= -0.5f;
+                    }
+                  }
+                  bRec.x = bricks[i][j].position.x;
+                  bRec.y = bricks[i][j].position.y;
+                }
+              }
+            }
+          }
+
+          // Wall collision
+          if (bricks[i][j].position.x <= 0) {
+            bricks[i][j].position.x = 0;
+            bricks[i][j].speed.x *= -1;
+          } else if (bricks[i][j].position.x + bricks[i][j].size.x >=
+                     screenWidth) {
+            bricks[i][j].position.x = screenWidth - bricks[i][j].size.x;
+            bricks[i][j].speed.x *= -1;
+          }
+
+          // Despawn
+          if (bricks[i][j].position.y > screenHeight + 50) {
+            bricks[i][j].falling = false;
+          }
+        }
+      }
+    }
+
+    // Falling Bricks self-collision
+    for (int i = 0; i < B_ROWS; i++) {
+      for (int j = 0; j < B_COLUMNS; j++) {
+        if (!bricks[i][j].falling)
+          continue;
+        Rectangle b1 = {bricks[i][j].position.x, bricks[i][j].position.y,
+                        bricks[i][j].size.x, bricks[i][j].size.y};
+
+        for (int m = i; m < B_ROWS; m++) {
+          for (int n = (m == i ? j + 1 : 0); n < B_COLUMNS; n++) {
+            if (!bricks[m][n].falling)
+              continue;
+            Rectangle b2 = {bricks[m][n].position.x, bricks[m][n].position.y,
+                            bricks[m][n].size.x, bricks[m][n].size.y};
+
+            if (CheckCollisionRecs(b1, b2)) {
+              // Elastic velocity swap
+              Vector2 temp = bricks[i][j].speed;
+              bricks[i][j].speed = bricks[m][n].speed;
+              bricks[m][n].speed = temp;
+
+              // Push apart to prevent intersection clipping
+              float intersectX =
+                  std::fmin(bricks[i][j].position.x + bricks[i][j].size.x -
+                                bricks[m][n].position.x,
+                            bricks[m][n].position.x + bricks[m][n].size.x -
+                                bricks[i][j].position.x);
+              float intersectY =
+                  std::fmin(bricks[i][j].position.y + bricks[i][j].size.y -
+                                bricks[m][n].position.y,
+                            bricks[m][n].position.y + bricks[m][n].size.y -
+                                bricks[i][j].position.y);
+
+              if (intersectX < intersectY) {
+                if (bricks[i][j].position.x < bricks[m][n].position.x) {
+                  bricks[i][j].position.x -= intersectX / 2.0f;
+                  bricks[m][n].position.x += intersectX / 2.0f;
+                } else {
+                  bricks[i][j].position.x += intersectX / 2.0f;
+                  bricks[m][n].position.x -= intersectX / 2.0f;
+                }
+              } else {
+                if (bricks[i][j].position.y < bricks[m][n].position.y) {
+                  bricks[i][j].position.y -= intersectY / 2.0f;
+                  bricks[m][n].position.y += intersectY / 2.0f;
+                } else {
+                  bricks[i][j].position.y += intersectY / 2.0f;
+                  bricks[m][n].position.y -= intersectY / 2.0f;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Bricks collision with ball
+    if (ball.active) {
       for (int i = 0; i < B_ROWS; i++) {
         for (int j = 0; j < B_COLUMNS; j++) {
           if (bricks[i][j].active || bricks[i][j].falling) {
-
-            if (bricks[i][j].falling) {
-              bricks[i][j].position.y += 2.0f; // falling slowly
-              if (bricks[i][j].position.y > screenHeight + 50) {
-                bricks[i][j].falling = false;
-              }
-            }
-
             Rectangle brickRec = {bricks[i][j].position.x,
                                   bricks[i][j].position.y, bricks[i][j].size.x,
                                   bricks[i][j].size.y};
@@ -193,6 +336,7 @@ void UpdateGame() {
               if (bricks[i][j].active) {
                 bricks[i][j].active = false;
                 bricks[i][j].falling = true;
+                bricks[i][j].speed = (Vector2){0, 2.0f}; // initial break speed
                 score += 10;
                 speedMultiplier *= 1.02f;
                 ball.speed.x *= 1.02f;
@@ -230,24 +374,24 @@ void UpdateGame() {
           }
         }
       }
-    CollisionHandled:
+    CollisionHandled:;
+    }
 
-      bool winCheck = true;
-      for (int i = 0; i < B_ROWS; i++) {
-        for (int j = 0; j < B_COLUMNS; j++) {
-          if (bricks[i][j].active) {
-            winCheck = false;
-            break;
-          }
-        }
-        if (!winCheck)
+    bool winCheck = true;
+    for (int i = 0; i < B_ROWS; i++) {
+      for (int j = 0; j < B_COLUMNS; j++) {
+        if (bricks[i][j].active) {
+          winCheck = false;
           break;
+        }
       }
+      if (!winCheck)
+        break;
+    }
 
-      if (winCheck) {
-        currentScreen = ENDING;
-        victory = true;
-      }
+    if (winCheck) {
+      currentScreen = ENDING;
+      victory = true;
     }
   } else if (currentScreen == ENDING) {
     if (IsKeyPressed(KEY_ENTER)) {
@@ -294,17 +438,39 @@ void DrawGame() {
           // Drop shadow
           DrawRectangle(bRec.x + 3, bRec.y + 3, bRec.width, bRec.height,
                         Fade(BLACK, 0.4f));
+          Color baseColor = bricks[i][j].color;
+          if (bricks[i][j].falling) {
+            // Darken color to look "turned off"
+            baseColor.r = (unsigned char)(baseColor.r * 0.4f);
+            baseColor.g = (unsigned char)(baseColor.g * 0.4f);
+            baseColor.b = (unsigned char)(baseColor.b * 0.4f);
+          }
+
           // Body
-          DrawRectangleRec(bRec, bricks[i][j].color);
+          DrawRectangleRec(bRec, baseColor);
+
           // 3D Bevel Effects
-          DrawRectangle(bRec.x, bRec.y, bRec.width, 3,
-                        Fade(WHITE, 0.6f)); // Top
-          DrawRectangle(bRec.x, bRec.y, 3, bRec.height,
-                        Fade(WHITE, 0.6f)); // Left
-          DrawRectangle(bRec.x, bRec.y + bRec.height - 3, bRec.width, 3,
-                        Fade(BLACK, 0.4f)); // Bottom
-          DrawRectangle(bRec.x + bRec.width - 3, bRec.y, 3, bRec.height,
-                        Fade(BLACK, 0.4f)); // Right
+          if (bricks[i][j].active) {
+            // Illuminated / Bright edges
+            DrawRectangle(bRec.x, bRec.y, bRec.width, 3,
+                          Fade(WHITE, 0.6f)); // Top
+            DrawRectangle(bRec.x, bRec.y, 3, bRec.height,
+                          Fade(WHITE, 0.6f)); // Left
+            DrawRectangle(bRec.x, bRec.y + bRec.height - 3, bRec.width, 3,
+                          Fade(BLACK, 0.4f)); // Bottom
+            DrawRectangle(bRec.x + bRec.width - 3, bRec.y, 3, bRec.height,
+                          Fade(BLACK, 0.4f)); // Right
+          } else {
+            // Turned off edges
+            DrawRectangle(bRec.x, bRec.y, bRec.width, 3,
+                          Fade(BLACK, 0.3f)); // Top
+            DrawRectangle(bRec.x, bRec.y, 3, bRec.height,
+                          Fade(BLACK, 0.3f)); // Left
+            DrawRectangle(bRec.x, bRec.y + bRec.height - 3, bRec.width, 3,
+                          Fade(BLACK, 0.7f)); // Bottom
+            DrawRectangle(bRec.x + bRec.width - 3, bRec.y, 3, bRec.height,
+                          Fade(BLACK, 0.7f)); // Right
+          }
         }
       }
     }
