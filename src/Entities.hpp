@@ -46,3 +46,10 @@ struct AIPlayer {
   bool active;
   float speedX;
 };
+
+struct Star {
+  Vector2 position;
+  float speedY;
+  float radius;
+  Color color;
+};

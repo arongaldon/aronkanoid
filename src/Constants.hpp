@@ -8,6 +8,7 @@ const int B_COLUMNS = 10;
 const int B_ROWS = 5;
 const int MAX_BALLS = 5;
 const int MAX_BULLETS = 10;
+const int MAX_STARS = 100;
 
 enum ImprovementType {
   NONE,

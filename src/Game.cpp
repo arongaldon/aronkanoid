@@ -5,9 +5,23 @@
 Game::Game() {
   player = {0};
   aiBar = {0};
-  for(int i=0;i<MAX_BALLS;i++) balls[i] = {0};
-  for(int i=0;i<B_ROWS;i++) for(int j=0;j<B_COLUMNS;j++) bricks[i][j] = {0};
-  for(int i=0;i<MAX_BULLETS;i++) bullets[i] = {0};
+  for (int i = 0; i < MAX_BALLS; i++)
+    balls[i] = {0};
+  for (int i = 0; i < B_ROWS; i++)
+    for (int j = 0; j < B_COLUMNS; j++)
+      bricks[i][j] = {0};
+  for (int i = 0; i < MAX_BULLETS; i++)
+    bullets[i] = {0};
+  for (int i = 0; i < MAX_STARS; i++) {
+    stars[i].position = (Vector2){(float)GetRandomValue(0, screenWidth),
+                                  (float)GetRandomValue(0, screenHeight)};
+    stars[i].speedY = (float)GetRandomValue(10, 50) / 10.0f;
+    stars[i].radius = stars[i].speedY * 0.4f;
+    int c = GetRandomValue(100, 255);
+    stars[i].color =
+        (Color){(unsigned char)c, (unsigned char)c, (unsigned char)c,
+                (unsigned char)GetRandomValue(150, 255)};
+  }
   currentScreen = MENU;
   score = 0;
   victory = false;
@@ -705,9 +719,24 @@ void Game::Update() {
   }
 }
 
+void Game::UpdateStars() {
+  for (int i = 0; i < MAX_STARS; i++) {
+    stars[i].position.y += stars[i].speedY;
+    if (stars[i].position.y > screenHeight) {
+      stars[i].position.y = 0;
+      stars[i].position.x = (float)GetRandomValue(0, screenWidth);
+    }
+  }
+}
+
 void Game::Draw() {
   BeginDrawing();
   ClearBackground(BLACK);
+
+  // Draw Stars Background
+  for (int i = 0; i < MAX_STARS; i++) {
+    DrawCircleV(stars[i].position, stars[i].radius, stars[i].color);
+  }
 
   if (currentScreen == MENU) {
     DrawText("ARONKANOID", screenWidth / 2 - MeasureText("ARONKANOID", 40) / 2,
@@ -970,8 +999,7 @@ void Game::Draw() {
 }
 
 void Game::UpdateDrawFrame() {
+  UpdateStars();
   Update();
   Draw();
 }
-
-

@@ -8,6 +8,7 @@ public:
   Ball balls[MAX_BALLS];
   Brick bricks[B_ROWS][B_COLUMNS];
   Bullet bullets[MAX_BULLETS];
+  Star stars[MAX_STARS];
 
   GameScreen currentScreen;
   int score;
@@ -18,9 +19,10 @@ public:
   float explosionRadius;
 
   Game();
-  
+
   void Init();
   void Update();
+  void UpdateStars();
   void Draw();
   void UpdateDrawFrame();
 
