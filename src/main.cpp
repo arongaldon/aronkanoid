@@ -12,6 +12,28 @@ struct Player {
   Vector2 position;
   Vector2 size;
   int life;
+  bool isSticky;
+  bool isYFree;
+  bool canShoot;
+  bool hasLaser;
+  bool hasShield;
+};
+
+enum ImprovementType {
+  NONE,
+  BIGGER_BAR,
+  STICKY_BAR,
+  Y_FREE,
+  BULLETS,
+  EXTRA_LIFE,
+  EXTRA_BALL,
+  AI_BAR,
+  FIREBALL,
+  SLOW_DOWN,
+  MULTI_BALL,
+  LASER,
+  SHIELD,
+  SHRINK_BAR
 };
 
 struct Ball {
@@ -19,6 +41,8 @@ struct Ball {
   Vector2 speed;
   int radius;
   bool active;
+  bool readyToLaunch;
+  bool isFireball;
 };
 
 struct Brick {
@@ -29,13 +53,36 @@ struct Brick {
   bool isTrap;
   Vector2 speed;
   Color color;
+  ImprovementType improvement;
+  int hp;
+  int maxHp;
 };
 
 enum GameScreen { MENU, GAMEPLAY, ENDING };
 
+const int MAX_BULLETS = 10;
+struct Bullet {
+  Vector2 position;
+  bool active;
+  Vector2 speed;
+};
+Bullet bullets[MAX_BULLETS] = {0};
+
+void ResetPlayerPowerups();
+
 // Global variables
+const int MAX_BALLS = 5;
 Player player = {0};
-Ball ball = {0};
+
+struct AIPlayer {
+  Vector2 position;
+  Vector2 size;
+  bool active;
+  float speedX;
+};
+AIPlayer aiBar = {0};
+
+Ball balls[MAX_BALLS] = {0};
 Brick bricks[B_ROWS][B_COLUMNS] = {0};
 GameScreen currentScreen = MENU;
 int score = 0;
@@ -65,19 +112,36 @@ int main() {
   return 0;
 }
 
+void ResetPlayerPowerups() {
+  player.size.x = 100;
+  player.isSticky = false;
+  player.isYFree = false;
+  player.canShoot = false;
+  player.hasLaser = false;
+  player.hasShield = false;
+  aiBar.active = false;
+}
+
 void InitGame() {
   // Init Player
   player.size = (Vector2){100, 20};
+  ResetPlayerPowerups();
+  for (int i = 0; i < MAX_BULLETS; i++)
+    bullets[i].active = false;
   player.position = (Vector2){screenWidth / 2 - player.size.x / 2,
                               screenHeight - player.size.y * 2};
   player.life = 3;
 
   // Init Ball
-  ball.radius = 10;
-  ball.position = (Vector2){player.position.x + player.size.x / 2,
-                            player.position.y - ball.radius * 2};
-  ball.speed = (Vector2){0, 0};
-  ball.active = false;
+  for (int i = 0; i < MAX_BALLS; i++) {
+    balls[i].radius = 10;
+    balls[i].position = (Vector2){player.position.x + player.size.x / 2,
+                                  player.position.y - balls[i].radius * 2};
+    balls[i].speed = (Vector2){0, 0};
+    balls[i].active = false;
+    balls[i].readyToLaunch = (i == 0);
+    balls[i].isFireball = false;
+  }
 
   // Init Bricks
   int initialDownPosition = 50;
@@ -95,18 +159,27 @@ void InitGame() {
       bricks[i][j].falling = false;
       bricks[i][j].isTrap = false;
       bricks[i][j].speed = (Vector2){0, 0};
+      bricks[i][j].improvement = NONE;
 
-      // Alternate colors
-      switch (i % 3) {
-      case 0:
-        bricks[i][j].color = RED;
-        break;
-      case 1:
-        bricks[i][j].color = ORANGE;
-        break;
-      case 2:
-        bricks[i][j].color = YELLOW;
-        break;
+      if (i == 0) {
+        bricks[i][j].color = GRAY;
+        bricks[i][j].hp = 2;
+        bricks[i][j].maxHp = 2;
+      } else {
+        bricks[i][j].hp = 1;
+        bricks[i][j].maxHp = 1;
+        // Alternate colors
+        switch (i % 3) {
+        case 0:
+          bricks[i][j].color = RED;
+          break;
+        case 1:
+          bricks[i][j].color = ORANGE;
+          break;
+        case 2:
+          bricks[i][j].color = YELLOW;
+          break;
+        }
       }
     }
   }
@@ -115,6 +188,17 @@ void InitGame() {
   int trapR = GetRandomValue(0, B_ROWS - 1);
   int trapC = GetRandomValue(0, B_COLUMNS - 1);
   bricks[trapR][trapC].isTrap = true;
+
+  aiBar.size = (Vector2){80, 20};
+  aiBar.speedX = 6.0f;
+
+  for (int i = 0; i < B_ROWS; i++) {
+    for (int j = 0; j < B_COLUMNS; j++) {
+      if (!bricks[i][j].isTrap && GetRandomValue(1, 100) <= 25) {
+        bricks[i][j].improvement = (ImprovementType)GetRandomValue(1, 13);
+      }
+    }
+  }
 
   score = 0;
   victory = false;
@@ -137,6 +221,9 @@ void UpdateGame() {
     Vector2 mouseDelta = GetMouseDelta();
     if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
       player.position.x = GetMouseX() - player.size.x / 2.0f;
+      if (player.isYFree) {
+        player.position.y = GetMouseY() - player.size.y / 2.0f;
+      }
     }
 
     if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))
@@ -144,62 +231,209 @@ void UpdateGame() {
     if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))
       player.position.x += 12.0f;
 
+    if (player.isYFree) {
+      if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W))
+        player.position.y -= 12.0f;
+      if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S))
+        player.position.y += 12.0f;
+    }
+
     if (player.position.x <= 0)
       player.position.x = 0;
     if (player.position.x + player.size.x >= screenWidth)
       player.position.x = screenWidth - player.size.x;
 
-    // Ball launch
-    if (!ball.active) {
-      ball.position = (Vector2){player.position.x + player.size.x / 2,
-                                player.position.y - ball.radius * 2};
-      if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        ball.active = true;
-        ball.speed = (Vector2){4.0f * speedMultiplier,
-                               -5.0f * speedMultiplier}; // Initial velocity
-      }
+    if (player.isYFree) {
+      if (player.position.y <= 0)
+        player.position.y = 0;
+      if (player.position.y + player.size.y >= screenHeight)
+        player.position.y = screenHeight - player.size.y;
     } else {
-      // Ball movement
-      ball.position.x += ball.speed.x;
-      ball.position.y += ball.speed.y;
+      player.position.y = screenHeight - player.size.y * 2;
+    }
+
+    if (aiBar.active) {
+      aiBar.position.y = player.position.y - 40; // A bit upper in Y
+      // Find lowest ball heading downwards
+      float lowestY = -1;
+      float targetX = aiBar.position.x + aiBar.size.x / 2.0f;
+      bool found = false;
+      for (int k = 0; k < MAX_BALLS; k++) {
+        if (balls[k].active && balls[k].speed.y > 0) {
+          if (balls[k].position.y > lowestY) {
+            lowestY = balls[k].position.y;
+            targetX = balls[k].position.x;
+            found = true;
+          }
+        }
+      }
+
+      if (found) {
+        float aiCenterX = aiBar.position.x + aiBar.size.x / 2.0f;
+        if (aiCenterX < targetX - 5.0f) {
+          aiBar.position.x += aiBar.speedX;
+        } else if (aiCenterX > targetX + 5.0f) {
+          aiBar.position.x -= aiBar.speedX;
+        }
+      }
+
+      if (aiBar.position.x <= 0)
+        aiBar.position.x = 0;
+      if (aiBar.position.x + aiBar.size.x >= screenWidth)
+        aiBar.position.x = screenWidth - aiBar.size.x;
+    }
+
+    // Ball launch
+    bool shootActionPressed =
+        IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+
+    for (int k = 0; k < MAX_BALLS; k++) {
+      if (balls[k].readyToLaunch) {
+        balls[k].position = (Vector2){player.position.x + player.size.x / 2,
+                                      player.position.y - balls[k].radius * 2};
+        if (shootActionPressed) {
+          balls[k].active = true;
+          balls[k].readyToLaunch = false;
+          balls[k].speed =
+              (Vector2){4.0f * speedMultiplier,
+                        -5.0f * speedMultiplier}; // Initial velocity
+        }
+      }
+    }
+
+    if (player.canShoot && shootActionPressed) {
+      for (int i = 0; i < MAX_BULLETS; i++) {
+        if (!bullets[i].active) {
+          bullets[i].active = true;
+          bullets[i].position = (Vector2){
+              player.position.x + player.size.x / 2.0f, player.position.y};
+          bullets[i].speed = (Vector2){0, -8.0f};
+          break;
+        }
+      }
+    }
+
+    // Bullets update
+    for (int i = 0; i < MAX_BULLETS; i++) {
+      if (bullets[i].active) {
+        bullets[i].position.y += bullets[i].speed.y;
+        if (bullets[i].position.y < 0)
+          bullets[i].active = false;
+
+        for (int r = 0; r < B_ROWS; r++) {
+          for (int c = 0; c < B_COLUMNS; c++) {
+            if (bricks[r][c].active &&
+                CheckCollisionCircleRec(bullets[i].position, 3,
+                                        (Rectangle){bricks[r][c].position.x,
+                                                    bricks[r][c].position.y,
+                                                    bricks[r][c].size.x,
+                                                    bricks[r][c].size.y})) {
+              bullets[i].active = false;
+              bricks[r][c].hp--;
+              if (bricks[r][c].hp <= 0) {
+                bricks[r][c].active = false;
+                bricks[r][c].falling = true;
+                bricks[r][c].speed = (Vector2){0, 2.0f};
+                score += 10;
+              } else {
+                score += 5;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Ball movement
+    for (int k = 0; k < MAX_BALLS; k++) {
+      if (!balls[k].active)
+        continue;
+
+      balls[k].position.x += balls[k].speed.x;
+      balls[k].position.y += balls[k].speed.y;
 
       // Wall collision
-      if (ball.position.x + ball.radius >= screenWidth) {
-        ball.position.x = screenWidth - ball.radius;
-        ball.speed.x = -std::abs(ball.speed.x);
-      } else if (ball.position.x - ball.radius <= 0) {
-        ball.position.x = ball.radius;
-        ball.speed.x = std::abs(ball.speed.x);
+      if (balls[k].position.x + balls[k].radius >= screenWidth) {
+        balls[k].position.x = screenWidth - balls[k].radius;
+        balls[k].speed.x = -std::abs(balls[k].speed.x);
+      } else if (balls[k].position.x - balls[k].radius <= 0) {
+        balls[k].position.x = balls[k].radius;
+        balls[k].speed.x = std::abs(balls[k].speed.x);
       }
 
-      if (ball.position.y - ball.radius <= 0) {
-        ball.position.y = ball.radius;
-        ball.speed.y = std::abs(ball.speed.y);
+      if (balls[k].position.y - balls[k].radius <= 0) {
+        balls[k].position.y = balls[k].radius;
+        balls[k].speed.y = std::abs(balls[k].speed.y);
       }
 
       // Floor collision (Death)
-      if (ball.position.y + ball.radius >= screenHeight) {
-        ball.active = false;
-        player.life--;
-        if (player.life <= 0) {
-          currentScreen = ENDING;
-          victory = false;
-          ShowCursor();
+      if (balls[k].position.y + balls[k].radius >= screenHeight) {
+        if (player.hasShield && (balls[k].active || balls[k].readyToLaunch)) {
+          balls[k].speed.y = -std::abs(balls[k].speed.y);
+          balls[k].position.y = screenHeight - balls[k].radius - 5.0f;
+          player.hasShield = false;
+        } else {
+          balls[k].active = false;
+
+          bool anyAlive = false;
+          for (int a = 0; a < MAX_BALLS; a++) {
+            if (balls[a].active || balls[a].readyToLaunch)
+              anyAlive = true;
+          }
+
+          if (!anyAlive) {
+            player.life--;
+            ResetPlayerPowerups();
+            for (int a = 0; a < MAX_BALLS; a++) {
+              balls[a].active = false;
+              balls[a].readyToLaunch = false;
+              balls[a].isFireball = false;
+            }
+            if (player.life <= 0) {
+              currentScreen = ENDING;
+              victory = false;
+              ShowCursor();
+            } else {
+              balls[0].readyToLaunch = true;
+            }
+          }
         }
       }
 
       // Player collision
-      if (CheckCollisionCircleRec(ball.position, ball.radius,
+      if (balls[k].active &&
+          CheckCollisionCircleRec(balls[k].position, balls[k].radius,
                                   (Rectangle){player.position.x,
                                               player.position.y, player.size.x,
                                               player.size.y})) {
-        if (ball.speed.y > 0) {
-          ball.speed.y *= -1;
-          // Add some spin/english based on where it hit the paddle
+        if (balls[k].speed.y > 0) {
+          if (player.isSticky) {
+            balls[k].active = false;
+            balls[k].readyToLaunch = true;
+          } else {
+            balls[k].speed.y *= -1;
+            // Add some spin/english based on where it hit the paddle
+            float hitFactor = (balls[k].position.x -
+                               (player.position.x + player.size.x / 2)) /
+                              (player.size.x / 2);
+            balls[k].speed.x = hitFactor * 6.0f * speedMultiplier;
+          }
+        }
+      }
+
+      // AI Bar collision
+      if (aiBar.active && balls[k].active &&
+          CheckCollisionCircleRec(balls[k].position, balls[k].radius,
+                                  (Rectangle){aiBar.position.x,
+                                              aiBar.position.y, aiBar.size.x,
+                                              aiBar.size.y})) {
+        if (balls[k].speed.y > 0) {
+          balls[k].speed.y *= -1;
           float hitFactor =
-              (ball.position.x - (player.position.x + player.size.x / 2)) /
-              (player.size.x / 2);
-          ball.speed.x = hitFactor * 6.0f * speedMultiplier;
+              (balls[k].position.x - (aiBar.position.x + aiBar.size.x / 2.0f)) /
+              (aiBar.size.x / 2.0f);
+          balls[k].speed.x = hitFactor * 6.0f * speedMultiplier;
+          balls[k].position.y = aiBar.position.y - balls[k].radius;
         }
       }
     }
@@ -233,11 +467,17 @@ void UpdateGame() {
             if (std::abs(playerCenterX - explosionPos.x) <=
                 explosionRadius + player.size.x / 2.0f) {
               player.life--;
-              ball.active = false;
+              ResetPlayerPowerups();
+              for (int a = 0; a < MAX_BALLS; a++) {
+                balls[a].active = false;
+                balls[a].readyToLaunch = false;
+              }
               if (player.life <= 0) {
                 currentScreen = ENDING;
                 victory = false;
                 ShowCursor();
+              } else {
+                balls[0].readyToLaunch = true;
               }
             }
             continue;
@@ -246,18 +486,104 @@ void UpdateGame() {
           // Player paddle collision
           if (!bricks[i][j].isTrap && bricks[i][j].speed.y > 0 &&
               CheckCollisionRecs(bRec, pRec)) {
-            bricks[i][j].speed.y = -6.0f; // Bounce up
+            if (bricks[i][j].improvement != NONE) {
+              bricks[i][j].falling = false;
+              if (bricks[i][j].improvement == BIGGER_BAR) {
+                player.size.x += 50;
+                if (player.size.x > screenWidth - 100)
+                  player.size.x = screenWidth - 100;
+              } else if (bricks[i][j].improvement == STICKY_BAR)
+                player.isSticky = true;
+              else if (bricks[i][j].improvement == Y_FREE)
+                player.isYFree = true;
+              else if (bricks[i][j].improvement == BULLETS)
+                player.canShoot = true;
+              else if (bricks[i][j].improvement == EXTRA_LIFE)
+                player.life++;
+              else if (bricks[i][j].improvement == EXTRA_BALL) {
+                for (int b = 0; b < MAX_BALLS; b++) {
+                  if (!balls[b].active && !balls[b].readyToLaunch) {
+                    balls[b].active = true;
+                    Vector2 basePos =
+                        (Vector2){player.position.x + player.size.x / 2.0f,
+                                  player.position.y - 20};
+                    for (int a = 0; a < MAX_BALLS; a++) {
+                      if (balls[a].active && a != b) {
+                        basePos = balls[a].position;
+                        break;
+                      }
+                    }
+                    balls[b].position = basePos;
+                    balls[b].speed = (Vector2){((b % 2) == 0 ? 1.0f : -1.0f) *
+                                                   4.0f * speedMultiplier,
+                                               -5.0f * speedMultiplier};
+                    break;
+                  }
+                }
+              } else if (bricks[i][j].improvement == AI_BAR) {
+                aiBar.active = true;
+                aiBar.position.x = player.position.x + player.size.x / 2.0f -
+                                   aiBar.size.x / 2.0f;
+                aiBar.position.y = player.position.y - 40;
+              } else if (bricks[i][j].improvement == FIREBALL) {
+                for (int b = 0; b < MAX_BALLS; b++)
+                  if (balls[b].active || balls[b].readyToLaunch)
+                    balls[b].isFireball = true;
+              } else if (bricks[i][j].improvement == SLOW_DOWN) {
+                speedMultiplier = std::fmax(1.0f, speedMultiplier * 0.7f);
+                for (int b = 0; b < MAX_BALLS; b++) {
+                  if (balls[b].active) {
+                    balls[b].speed.x *= 0.7f;
+                    balls[b].speed.y *= 0.7f;
+                  }
+                }
+              } else if (bricks[i][j].improvement == MULTI_BALL) {
+                int spawned = 0;
+                for (int b = 0; b < MAX_BALLS && spawned < 2; b++) {
+                  if (!balls[b].active && !balls[b].readyToLaunch) {
+                    balls[b].active = true;
 
-            // Horizontal bounce based on paddle hit location
-            float hitFactor =
-                ((bricks[i][j].position.x + bricks[i][j].size.x / 2.0f) -
-                 (player.position.x + player.size.x / 2.0f)) /
-                (player.size.x / 2.0f);
-            bricks[i][j].speed.x = hitFactor * 5.0f;
+                    Vector2 basePos =
+                        (Vector2){player.position.x + player.size.x / 2.0f,
+                                  player.position.y - 20};
+                    for (int a = 0; a < MAX_BALLS; a++) {
+                      if (balls[a].active && a != b) {
+                        basePos = balls[a].position;
+                        break;
+                      }
+                    }
 
-            bricks[i][j].position.y = player.position.y - bricks[i][j].size.y;
-            bRec.y = bricks[i][j].position.y;
-            bRec.x = bricks[i][j].position.x;
+                    balls[b].position = basePos;
+                    balls[b].speed = (Vector2){((b % 2) == 0 ? 1.5f : -1.5f) *
+                                                   4.0f * speedMultiplier,
+                                               -4.5f * speedMultiplier};
+                    balls[b].isFireball = false;
+                    spawned++;
+                  }
+                }
+              } else if (bricks[i][j].improvement == LASER)
+                player.hasLaser = true;
+              else if (bricks[i][j].improvement == SHIELD)
+                player.hasShield = true;
+              else if (bricks[i][j].improvement == SHRINK_BAR) {
+                player.size.x -= 30;
+                if (player.size.x < 40)
+                  player.size.x = 40;
+              }
+            } else {
+              bricks[i][j].speed.y = -6.0f; // Bounce up
+
+              // Horizontal bounce based on paddle hit location
+              float hitFactor =
+                  ((bricks[i][j].position.x + bricks[i][j].size.x / 2.0f) -
+                   (player.position.x + player.size.x / 2.0f)) /
+                  (player.size.x / 2.0f);
+              bricks[i][j].speed.x = hitFactor * 5.0f;
+
+              bricks[i][j].position.y = player.position.y - bricks[i][j].size.y;
+              bRec.y = bricks[i][j].position.y;
+              bRec.x = bricks[i][j].position.x;
+            }
           }
 
           // Active bricks collision
@@ -379,7 +705,9 @@ void UpdateGame() {
     }
 
     // Bricks collision with ball
-    if (ball.active) {
+    for (int k = 0; k < MAX_BALLS; k++) {
+      if (!balls[k].active)
+        continue;
       for (int i = 0; i < B_ROWS; i++) {
         for (int j = 0; j < B_COLUMNS; j++) {
           if (bricks[i][j].active || bricks[i][j].falling) {
@@ -387,63 +715,71 @@ void UpdateGame() {
                                   bricks[i][j].position.y, bricks[i][j].size.x,
                                   bricks[i][j].size.y};
 
-            if (CheckCollisionCircleRec(ball.position, ball.radius, brickRec)) {
+            if (CheckCollisionCircleRec(balls[k].position, balls[k].radius,
+                                        brickRec)) {
               if (bricks[i][j].active) {
-                bricks[i][j].active = false;
-                bricks[i][j].falling = true;
-                bricks[i][j].speed = (Vector2){0, 2.0f}; // initial break speed
-                score += 10;
-                speedMultiplier *= 1.02f;
-                ball.speed.x *= 1.02f;
-                ball.speed.y *= 1.02f;
+                bricks[i][j].hp--;
+                if (bricks[i][j].hp <= 0) {
+                  bricks[i][j].active = false;
+                  bricks[i][j].falling = true;
+                  bricks[i][j].speed =
+                      (Vector2){0, 2.0f}; // initial break speed
+                  score += 10;
+                  speedMultiplier *= 1.02f;
+                  balls[k].speed.x *= 1.02f;
+                  balls[k].speed.y *= 1.02f;
+                } else {
+                  score += 5;
+                }
               }
 
               // Basic reflection logic -> very simplistic
-              float dTop = std::abs(brickRec.y - ball.position.y);
-              float dBot =
-                  std::abs((brickRec.y + brickRec.height) - ball.position.y);
-              float dLeft = std::abs(brickRec.x - ball.position.x);
-              float dRight =
-                  std::abs((brickRec.x + brickRec.width) - ball.position.x);
+              if (!balls[k].isFireball) {
+                float dTop = std::abs(brickRec.y - balls[k].position.y);
+                float dBot = std::abs((brickRec.y + brickRec.height) -
+                                      balls[k].position.y);
+                float dLeft = std::abs(brickRec.x - balls[k].position.x);
+                float dRight = std::abs((brickRec.x + brickRec.width) -
+                                        balls[k].position.x);
 
-              float minDist =
-                  std::fmin(std::fmin(dTop, dBot), std::fmin(dLeft, dRight));
+                float minDist =
+                    std::fmin(std::fmin(dTop, dBot), std::fmin(dLeft, dRight));
 
-              if (minDist == dTop) {
-                ball.speed.y = -std::abs(ball.speed.y);
-                ball.position.y = brickRec.y - ball.radius - 0.1f;
-              } else if (minDist == dBot) {
-                ball.speed.y = std::abs(ball.speed.y);
-                ball.position.y =
-                    brickRec.y + brickRec.height + ball.radius + 0.1f;
-              } else if (minDist == dLeft) {
-                ball.speed.x = -std::abs(ball.speed.x);
-                ball.position.x = brickRec.x - ball.radius - 0.1f;
-              } else {
-                ball.speed.x = std::abs(ball.speed.x);
-                ball.position.x =
-                    brickRec.x + brickRec.width + ball.radius + 0.1f;
+                if (minDist == dTop) {
+                  balls[k].speed.y = -std::abs(balls[k].speed.y);
+                  balls[k].position.y = brickRec.y - balls[k].radius - 0.1f;
+                } else if (minDist == dBot) {
+                  balls[k].speed.y = std::abs(balls[k].speed.y);
+                  balls[k].position.y =
+                      brickRec.y + brickRec.height + balls[k].radius + 0.1f;
+                } else if (minDist == dLeft) {
+                  balls[k].speed.x = -std::abs(balls[k].speed.x);
+                  balls[k].position.x = brickRec.x - balls[k].radius - 0.1f;
+                } else {
+                  balls[k].speed.x = std::abs(balls[k].speed.x);
+                  balls[k].position.x =
+                      brickRec.x + brickRec.width + balls[k].radius + 0.1f;
+                }
+
+                // Anti-stuck: If perfectly horizontal bounce and trapped near
+                // top, add slight vertical
+                if (std::abs(balls[k].speed.y) < 0.5f) {
+                  balls[k].speed.y = (balls[k].speed.y >= 0 ? 1.0f : -1.0f);
+                }
               }
 
-              // Anti-stuck: If perfectly horizontal bounce and trapped near
-              // top, add slight vertical
-              if (std::abs(ball.speed.y) < 0.5f) {
-                ball.speed.y = (ball.speed.y >= 0 ? 1.0f : -1.0f);
-              }
-
-              // Let's break to only handle one collision per frame effectively
-              goto CollisionHandled;
+              goto BallCollisionHandled;
             }
           }
         }
       }
-    CollisionHandled:;
+    BallCollisionHandled:;
     }
 
     bool winCheck = true;
     for (int i = 0; i < B_ROWS; i++) {
       for (int j = 0; j < B_COLUMNS; j++) {
-        if (bricks[i][j].active) {
+        if (bricks[i][j].active || bricks[i][j].falling) {
           winCheck = false;
           break;
         }
@@ -490,8 +826,90 @@ void DrawGame() {
     DrawRectangle(player.position.x + player.size.x - 4, player.position.y, 4,
                   player.size.y, GRAY); // Right edge
 
-    // Draw Ball
-    DrawCircleV(ball.position, ball.radius, WHITE);
+    // Draw Cannons
+    if (player.canShoot) {
+      // Left Cannon
+      DrawRectangle(player.position.x + 10, player.position.y - 12, 12, 12,
+                    GRAY);
+      DrawRectangle(player.position.x + 10, player.position.y - 12, 4, 12,
+                    LIGHTGRAY);
+      DrawRectangle(player.position.x + 20, player.position.y - 12, 2, 12,
+                    DARKGRAY);
+
+      // Right Cannon
+      DrawRectangle(player.position.x + player.size.x - 22,
+                    player.position.y - 12, 12, 12, GRAY);
+      DrawRectangle(player.position.x + player.size.x - 22,
+                    player.position.y - 12, 4, 12, LIGHTGRAY);
+      DrawRectangle(player.position.x + player.size.x - 12,
+                    player.position.y - 12, 2, 12, DARKGRAY);
+    }
+
+    // Draw AI Bar
+    if (aiBar.active) {
+      DrawRectangle(aiBar.position.x + 4, aiBar.position.y + 4, aiBar.size.x,
+                    aiBar.size.y, Fade(BLACK, 0.4f));
+      DrawRectangleV(aiBar.position, aiBar.size, ORANGE);
+      DrawRectangle(aiBar.position.x, aiBar.position.y, aiBar.size.x, 4,
+                    Fade(WHITE, 0.5f));
+      DrawRectangle(aiBar.position.x, aiBar.position.y, 4, aiBar.size.y,
+                    Fade(WHITE, 0.5f));
+      DrawRectangle(aiBar.position.x, aiBar.position.y + aiBar.size.y - 4,
+                    aiBar.size.x, 4, Fade(BLACK, 0.3f));
+      DrawRectangle(aiBar.position.x + aiBar.size.x - 4, aiBar.position.y, 4,
+                    aiBar.size.y, Fade(BLACK, 0.3f));
+      DrawText("AI",
+               aiBar.position.x + aiBar.size.x / 2 - MeasureText("AI", 10) / 2,
+               aiBar.position.y + 5, 10, WHITE);
+    }
+
+    // Draw Bullets
+    for (int i = 0; i < MAX_BULLETS; i++) {
+      if (bullets[i].active) {
+        DrawCircleV(bullets[i].position, 3, YELLOW);
+      }
+    }
+
+    // Draw Shield
+    if (player.hasShield) {
+      for (int i = 0; i < screenWidth; i += 40) {
+        DrawRectangle(i, screenHeight - 15, 38, 15, SKYBLUE);
+        DrawRectangle(i, screenHeight - 15, 38, 3, Fade(WHITE, 0.7f));
+        DrawRectangle(i, screenHeight - 15, 3, 15, Fade(WHITE, 0.7f));
+        DrawRectangle(i, screenHeight - 3, 38, 3, Fade(BLACK, 0.3f));
+        DrawRectangle(i + 35, screenHeight - 15, 3, 15, Fade(BLACK, 0.3f));
+      }
+    }
+
+    // Draw Laser Trajectory
+    if (player.hasLaser) {
+      for (int k = 0; k < MAX_BALLS; k++) {
+        if (balls[k].active || balls[k].readyToLaunch) {
+          Vector2 simulatePos = balls[k].position;
+          Vector2 simulateSpeed =
+              (balls[k].speed.x == 0 && balls[k].speed.y == 0)
+                  ? (Vector2){4.0f * speedMultiplier, -5.0f * speedMultiplier}
+                  : balls[k].speed;
+
+          for (int t = 0; t < 20; t++) {
+            simulatePos.x += simulateSpeed.x * 2.0f;
+            simulatePos.y += simulateSpeed.y * 2.0f;
+            if (t % 2 == 0)
+              DrawCircleV(simulatePos, 2, ColorAlpha(RED, 0.5f));
+          }
+        }
+      }
+    }
+
+    // Draw Balls
+    for (int k = 0; k < MAX_BALLS; k++) {
+      if (balls[k].active || balls[k].readyToLaunch) {
+        DrawCircleV(balls[k].position, balls[k].radius,
+                    balls[k].isFireball ? RED : WHITE);
+        if (balls[k].isFireball)
+          DrawCircleV(balls[k].position, balls[k].radius * 0.6f, YELLOW);
+      }
+    }
 
     // Draw Explosion
     if (explosionTimer > 0) {
@@ -526,6 +944,16 @@ void DrawGame() {
           // Body
           DrawRectangleRec(bRec, baseColor);
 
+          if (bricks[i][j].maxHp > 1 && bricks[i][j].hp < bricks[i][j].maxHp) {
+            DrawLineEx(
+                (Vector2){bRec.x + 5, bRec.y + 5},
+                (Vector2){bRec.x + bRec.width / 2.0f, bRec.y + bRec.height - 5},
+                2.0f, BLACK);
+            DrawLineEx(
+                (Vector2){bRec.x + bRec.width / 2.0f, bRec.y + bRec.height - 5},
+                (Vector2){bRec.x + bRec.width - 10, bRec.y + 10}, 2.0f, BLACK);
+          }
+
           // Render Skull if it's the trap
           if (bricks[i][j].falling && bricks[i][j].isTrap) {
             float cx = bRec.x + bRec.width / 2.0f;
@@ -535,6 +963,44 @@ void DrawGame() {
             DrawCircle(cx - 2, cy - 1, 1.5f, BLACK);    // left eye
             DrawCircle(cx + 2, cy - 1, 1.5f, BLACK);    // right eye
             DrawRectangle(cx - 1, cy + 3, 2, 2, BLACK); // nose
+          } else if (bricks[i][j].falling && bricks[i][j].improvement != NONE) {
+            float cx = bRec.x + bRec.width / 2.0f;
+            float cy = bRec.y + bRec.height / 2.0f;
+            if (bricks[i][j].improvement == BIGGER_BAR)
+              DrawText("< >", cx - MeasureText("< >", 10) / 2, cy - 5, 10,
+                       WHITE);
+            else if (bricks[i][j].improvement == STICKY_BAR)
+              DrawText("S", cx - MeasureText("S", 10) / 2, cy - 5, 10, GREEN);
+            else if (bricks[i][j].improvement == Y_FREE)
+              DrawText("Y", cx - MeasureText("Y", 10) / 2, cy - 5, 10, BLUE);
+            else if (bricks[i][j].improvement == BULLETS)
+              DrawText("B", cx - MeasureText("B", 10) / 2, cy - 5, 10, RED);
+            else if (bricks[i][j].improvement == EXTRA_LIFE)
+              DrawText("1UP", cx - MeasureText("1UP", 10) / 2, cy - 5, 10,
+                       YELLOW);
+            else if (bricks[i][j].improvement == EXTRA_BALL)
+              DrawText("+O", cx - MeasureText("+O", 10) / 2, cy - 5, 10,
+                       SKYBLUE);
+            else if (bricks[i][j].improvement == AI_BAR)
+              DrawText("AI", cx - MeasureText("AI", 10) / 2, cy - 5, 10,
+                       PURPLE);
+            else if (bricks[i][j].improvement == FIREBALL)
+              DrawText("FIRE", cx - MeasureText("FIRE", 10) / 2, cy - 5, 10,
+                       RED);
+            else if (bricks[i][j].improvement == SLOW_DOWN)
+              DrawText("SLOW", cx - MeasureText("SLOW", 10) / 2, cy - 5, 10,
+                       DARKBLUE);
+            else if (bricks[i][j].improvement == MULTI_BALL)
+              DrawText("X3", cx - MeasureText("X3", 10) / 2, cy - 5, 10, LIME);
+            else if (bricks[i][j].improvement == LASER)
+              DrawText("AIM", cx - MeasureText("AIM", 10) / 2, cy - 5, 10,
+                       MAGENTA);
+            else if (bricks[i][j].improvement == SHIELD)
+              DrawText("SHLD", cx - MeasureText("SHLD", 10) / 2, cy - 5, 10,
+                       SKYBLUE);
+            else if (bricks[i][j].improvement == SHRINK_BAR)
+              DrawText("><", cx - MeasureText("><", 10) / 2, cy - 5, 10,
+                       MAROON);
           }
 
           // 3D Bevel Effects
@@ -566,9 +1032,13 @@ void DrawGame() {
     // UI
     DrawText(TextFormat("SCORE: %04i", score), 20, 10, 20, WHITE);
     DrawText(TextFormat("LIVES: %i", player.life), screenWidth - 100, 10, 20,
-             BLACK);
+             WHITE);
 
-    if (!ball.active) {
+    bool anyReady = false;
+    for (int k = 0; k < MAX_BALLS; k++)
+      if (balls[k].readyToLaunch)
+        anyReady = true;
+    if (anyReady) {
       DrawText("PRESS SPACE to LAUNCH",
                screenWidth / 2 - MeasureText("PRESS SPACE to LAUNCH", 20) / 2,
                screenHeight / 2, 20, DARKGRAY);
