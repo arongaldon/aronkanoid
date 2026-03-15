@@ -1,6 +1,6 @@
 # Aronkanoid
 
-Aronkanoid reimagined by Aron Galdon. It is a simple Arkanoid clone built in C++ using the [Raylib](https://www.raylib.com/) library.
+Aronkanoid, a classic game reimagined by Aron Galdon. Built from scratch in C++ using the [Raylib](https://www.raylib.com/) library.
 
 ## Dependencies
 
